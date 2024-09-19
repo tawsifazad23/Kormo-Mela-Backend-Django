@@ -1102,12 +1102,39 @@ def get_conversations_service_provider(request):
         return JsonResponse({'message': 'Invalid request method'}, status=405)
 
 
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from .models import Chat, User
-import jwt
-from django.conf import settings
+# from django.shortcuts import get_object_or_404
+# from django.http import JsonResponse
+# from django.views.decorators.csrf import csrf_exempt
+# from .models import Chat, User
+# import jwt
+# from django.conf import settings
+
+# @csrf_exempt
+# def delete_chat(request, chat_id):
+#     if request.method == 'DELETE':
+#         token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+#         try:
+#             decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+#             user_id = decoded_token['user_id']
+#             user = User.objects.get(id=user_id)
+
+#             chat = get_object_or_404(Chat, id=chat_id, service_provider_request__job_posting__user=user)
+#             chat.status = 'deleted'
+#             chat.save()
+
+#             return JsonResponse({'message': 'Chat deleted successfully!'}, status=200)
+#         except jwt.ExpiredSignatureError:
+#             return JsonResponse({'message': 'Token has expired'}, status=401)
+#         except jwt.InvalidTokenError:
+#             return JsonResponse({'message': 'Invalid token'}, status=401)
+#         except User.DoesNotExist:
+#             return JsonResponse({'message': 'User not found'}, status=404)
+#         except Exception as e:
+#             return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
+#     else:
+#         return JsonResponse({'message': 'Invalid request method'}, status=405)
+
+from django.db import transaction
 
 @csrf_exempt
 def delete_chat(request, chat_id):
@@ -1118,9 +1145,15 @@ def delete_chat(request, chat_id):
             user_id = decoded_token['user_id']
             user = User.objects.get(id=user_id)
 
-            chat = get_object_or_404(Chat, id=chat_id, service_provider_request__job_posting__user=user)
-            chat.status = 'deleted'
-            chat.save()
+            with transaction.atomic():
+                chat = get_object_or_404(Chat, id=chat_id, service_provider_request__job_posting__user=user)
+                chat.status = 'deleted'
+                chat.save()
+
+                # Update the job posting's status or remove it from the upcoming trips list
+                job_posting = chat.service_provider_request.job_posting
+                job_posting.status = 'closed'  # Example status update, modify as per your logic
+                job_posting.save()
 
             return JsonResponse({'message': 'Chat deleted successfully!'}, status=200)
         except jwt.ExpiredSignatureError:
@@ -1133,6 +1166,7 @@ def delete_chat(request, chat_id):
             return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
     else:
         return JsonResponse({'message': 'Invalid request method'}, status=405)
+
 
 
 from django.http import StreamingHttpResponse, JsonResponse
@@ -1624,7 +1658,7 @@ def job_postings_sse(request):
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import ServiceProviderRequest, User, JobPosting, ServiceProvider
+from .models import ServiceProviderRequest, User, JobPosting, ServiceProvider, Driver
 import jwt
 from django.conf import settings
 import json
@@ -2272,7 +2306,74 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-@api_view(['GET'])
+
+# @api_view(['GET', 'PUT'])
+# def profile_view_customer(request):
+#     token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+#     try:
+#         decoded = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+#         user_id = decoded.get('user_id')
+#         if not user_id:
+#             return JsonResponse({'message': 'Invalid token payload'}, status=401)
+        
+#         try:
+#             user = User.objects.get(id=user_id)
+#         except User.DoesNotExist:
+#             return JsonResponse({'message': 'User not found'}, status=404)
+        
+#         try:
+#             customer = Customer.objects.get(user=user)
+#         except Customer.DoesNotExist:
+#             return JsonResponse({'message': 'Customer profile not found'}, status=404)
+
+#         if request.method == 'GET':
+#             # existing GET logic
+#             if user.profile_photo:
+#                 profile_photo_url = request.build_absolute_uri(settings.MEDIA_URL + user.profile_photo)
+#                 logger.info(f"Profile Photo URL: {profile_photo_url}")
+#             else:
+#                 profile_photo_url = 'https://www.shutterstock.com/image-vector/vector-flat-illustration-grayscale-avatar-600nw-2281862025.jpg'
+
+#             user_data = {
+#                 'id': user.id,
+#                 'first_name': user.first_name,
+#                 'last_name': user.last_name,
+#                 'email': user.email,
+#                 'phone': user.phone,
+#                 'address': user.address,
+#                 'occupation': customer.occupation,
+#                 'rating': customer.rating,
+#                 'nid': user.nid,
+#                 'date_of_birth': user.date_of_birth,
+#                 'profile_photo': profile_photo_url,
+#             }
+#             return JsonResponse({'user': user_data}, status=200)
+        
+#         elif request.method == 'PUT':
+#             data = request.data
+#             if 'occupation' in data:
+#                 customer.occupation = data['occupation']
+#                 customer.save()
+            
+#             if 'phone' in data:
+#                 # Validate phone number if needed
+#                 phone = data['phone']
+#                 if phone.startswith('+880') and len(phone) == 14 and phone[4:].isdigit():
+#                     user.phone = phone
+#                     user.save()
+#                 else:
+#                     return JsonResponse({'message': 'Invalid phone number format'}, status=400)
+            
+#             return JsonResponse({'message': 'Profile updated successfully'}, status=200)
+
+#     except jwt.ExpiredSignatureError:
+#         return JsonResponse({'message': 'Token has expired'}, status=401)
+#     except jwt.InvalidTokenError:
+#         return JsonResponse({'message': 'Invalid token'}, status=401)
+#     except Exception as e:
+#         logger.error(f"Error fetching or updating profile: {e}")
+#         return JsonResponse({'message': 'An error occurred while fetching or updating the profile'}, status=500)
+@api_view(['GET', 'PUT'])
 def profile_view_customer(request):
     token = request.headers.get('Authorization', '').split('Bearer ')[-1]
     try:
@@ -2291,34 +2392,57 @@ def profile_view_customer(request):
         except Customer.DoesNotExist:
             return JsonResponse({'message': 'Customer profile not found'}, status=404)
 
-        if user.profile_photo:
-            profile_photo_url = request.build_absolute_uri(settings.MEDIA_URL + user.profile_photo)
-            logger.info(f"Profile Photo URL: {profile_photo_url}")
-        else:
-            profile_photo_url = 'https://www.shutterstock.com/image-vector/vector-flat-illustration-grayscale-avatar-600nw-2281862025.jpg'
+        if request.method == 'GET':
+            # existing GET logic
+            if user.profile_photo:
+                profile_photo_url = request.build_absolute_uri(settings.MEDIA_URL + user.profile_photo)
+                logger.info(f"Profile Photo URL: {profile_photo_url}")
+            else:
+                profile_photo_url = 'https://www.shutterstock.com/image-vector/vector-flat-illustration-grayscale-avatar-600nw-2281862025.jpg'
 
-        user_data = {
-            'id': user.id,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'email': user.email,
-            'phone': user.phone,
-            'address': user.address,
-            'occupation': customer.occupation,
-            'rating': customer.rating,
-            'nid': user.nid,
-            'date_of_birth': user.date_of_birth,
-            'profile_photo': profile_photo_url,
-        }
-        return JsonResponse({'user': user_data}, status=200)
+            user_data = {
+                'id': user.id,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'email': user.email,
+                'phone': user.phone,
+                'address': user.address,
+                'occupation': customer.occupation,
+                'rating': customer.rating,
+                'nid': user.nid,
+                'date_of_birth': user.date_of_birth,
+                'profile_photo': profile_photo_url,
+            }
+            return JsonResponse({'user': user_data}, status=200)
+        
+        elif request.method == 'PUT':
+            data = request.data
+            if 'occupation' in data:
+                customer.occupation = data['occupation']
+                customer.save()
+
+            if 'address' in data:
+                user.address = data['address']
+                user.save()
+            
+            if 'phone' in data:
+                # Validate phone number if needed
+                phone = data['phone']
+                if phone.startswith('+880') and len(phone) == 14 and phone[4:].isdigit():
+                    user.phone = phone
+                    user.save()
+                else:
+                    return JsonResponse({'message': 'Invalid phone number format'}, status=400)
+            
+            return JsonResponse({'message': 'Profile updated successfully'}, status=200)
 
     except jwt.ExpiredSignatureError:
         return JsonResponse({'message': 'Token has expired'}, status=401)
     except jwt.InvalidTokenError:
         return JsonResponse({'message': 'Invalid token'}, status=401)
     except Exception as e:
-        logger.error(f"Error fetching profile: {e}")
-        return JsonResponse({'message': 'An error occurred while fetching profile'}, status=500)
+        logger.error(f"Error fetching or updating profile: {e}")
+        return JsonResponse({'message': 'An error occurred while fetching or updating the profile'}, status=500)
 
 
 from django.shortcuts import get_object_or_404
@@ -2394,20 +2518,109 @@ def book_trip(request, chat_id):
     else:
         return JsonResponse({'message': 'Invalid request method'}, status=405)
 
-import logging
-from django.shortcuts import get_object_or_404
+# import logging
+# from django.shortcuts import get_object_or_404
+# from django.http import JsonResponse
+# from django.views.decorators.csrf import csrf_exempt
+# from .models import Chat, JobPosting, Transaction, Hiring, User
+# import jwt
+# from django.conf import settings
+# from django.db import transaction
+# from datetime import datetime
+# from django.utils import timezone
+
+# # Configure logging
+# logging.basicConfig(level=logging.DEBUG)
+# logger = logging.getLogger(__name__)
+
+# @csrf_exempt
+# def user_trips_view(request):
+#     if request.method == 'GET':
+#         token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+#         try:
+#             decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+#             user_id = decoded_token['user_id']
+#             user = User.objects.get(id=user_id)
+
+#             logger.debug(f"User ID: {user_id} - {user.email} is requesting their trips")
+
+#             # Get all confirmed hirings for the user
+#             confirmed_trips = Hiring.objects.filter(customer=user).select_related('service_provider', 'transaction', 'transaction__job_posting')
+#             logger.debug(f"Total confirmed trips: {confirmed_trips.count()}")
+
+#             upcoming_trips = []
+#             past_trips = []
+#             current_time = timezone.now().date()
+
+#             for trip in confirmed_trips:
+#                 job_posting = trip.transaction.job_posting
+
+#                 if job_posting and job_posting.service_period:
+#                     service_period_str = job_posting.service_period  # Example: '2024-08-17 - 2024-08-25'
+#                     service_period_start_str, service_period_end_str = service_period_str.split(' - ')
+
+#                     service_period_start = datetime.strptime(service_period_start_str, '%Y-%m-%d').date()
+#                     service_period_end = datetime.strptime(service_period_end_str, '%Y-%m-%d').date()
+
+#                     profile_photo_url = request.build_absolute_uri(settings.MEDIA_URL + trip.service_provider.profile_photo) if trip.service_provider.profile_photo else 'https://www.shutterstock.com/image-vector/vector-flat-illustration-grayscale-avatar-600nw-2281862025.jpg'
+
+#                     trip_info = {
+#                         'id': trip.id,
+#                         'driverProfilePic': profile_photo_url,
+#                         'driverName': f"{trip.service_provider.first_name} {trip.service_provider.last_name}",
+#                         'serviceProviderType': job_posting.service_type,
+#                         'serviceRate': trip.transaction.rate,
+#                         'servicePeriodStart': service_period_start_str,
+#                         'servicePeriodEnd': service_period_end_str,
+#                         'tripId': trip.id,
+#                         'transactionId': trip.transaction.id,
+#                         'jobPostingId': job_posting.id,
+#                     }
+
+#                     # Log trip details for debugging
+#                     logger.debug(f"Processing Trip: {trip_info}")
+
+#                     if service_period_end >= current_time:
+#                         days_to_go = (service_period_end - current_time).days
+#                         trip_info['daysToGo'] = days_to_go
+#                         upcoming_trips.append(trip_info)
+#                         logger.debug(f"Upcoming Trip Added: {trip_info}")
+#                     else:
+#                         trip_info['servicePeriod'] = service_period_str
+#                         past_trips.append(trip_info)
+#                         logger.debug(f"Past Trip Added: {trip_info}")
+#                 else:
+#                     logger.warning(f"JobPosting or service_period is missing for trip ID {trip.id}")
+
+#             data = {
+#                 'upcoming': upcoming_trips,
+#                 'past': past_trips
+#             }
+
+#             logger.debug(f"Final Response Data: {data}")
+#             return JsonResponse(data, status=200)
+
+#         except jwt.ExpiredSignatureError:
+#             logger.warning("Token has expired")
+#             return JsonResponse({'message': 'Token has expired'}, status=401)
+#         except jwt.InvalidTokenError:
+#             logger.warning("Invalid token")
+#             return JsonResponse({'message': 'Invalid token'}, status=401)
+#         except User.DoesNotExist:
+#             logger.error("User not found")
+#             return JsonResponse({'message': 'User not found'}, status=404)
+#         except Exception as e:
+#             logger.error(f"An error occurred: {str(e)}")
+#             return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
+#     else:
+#         logger.warning("Invalid request method")
+#         return JsonResponse({'message': 'Invalid request method'}, status=405)
+
+from django.shortcuts import render
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from .models import Chat, JobPosting, Transaction, Hiring, User
+from .models import JobPosting, Chat, User
 import jwt
 from django.conf import settings
-from django.db import transaction
-from datetime import datetime
-from django.utils import timezone
-
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def user_trips_view(request):
@@ -2418,78 +2631,39 @@ def user_trips_view(request):
             user_id = decoded_token['user_id']
             user = User.objects.get(id=user_id)
 
-            logger.debug(f"User ID: {user_id} - {user.email} is requesting their trips")
+            # Fetch job postings associated with the user and exclude those with deleted chats
+            trips = JobPosting.objects.filter(
+                user=user,
+                status='open'  # Modify the filter criteria as needed
+            ).exclude(
+                service_provider_requests__chats__status='deleted'
+            ).distinct()
 
-            # Get all confirmed hirings for the user
-            confirmed_trips = Hiring.objects.filter(customer=user).select_related('service_provider', 'transaction', 'transaction__job_posting')
-            logger.debug(f"Total confirmed trips: {confirmed_trips.count()}")
+            # Serialize trips as needed
+            trips_data = []
+            for trip in trips:
+                trips_data.append({
+                    'id': trip.id,
+                    'service_type': trip.service_type,
+                    'service_period': trip.service_period,
+                    'service_rate': trip.service_rate,
+                    'onboarding_location': trip.onboarding_location,
+                    'job_summary': trip.job_summary,
+                    'status': trip.status,
+                    'created_at': trip.created_at,
+                    'updated_at': trip.updated_at,
+                })
 
-            upcoming_trips = []
-            past_trips = []
-            current_time = timezone.now().date()
-
-            for trip in confirmed_trips:
-                job_posting = trip.transaction.job_posting
-
-                if job_posting and job_posting.service_period:
-                    service_period_str = job_posting.service_period  # Example: '2024-08-17 - 2024-08-25'
-                    service_period_start_str, service_period_end_str = service_period_str.split(' - ')
-
-                    service_period_start = datetime.strptime(service_period_start_str, '%Y-%m-%d').date()
-                    service_period_end = datetime.strptime(service_period_end_str, '%Y-%m-%d').date()
-
-                    profile_photo_url = request.build_absolute_uri(settings.MEDIA_URL + trip.service_provider.profile_photo) if trip.service_provider.profile_photo else 'https://www.shutterstock.com/image-vector/vector-flat-illustration-grayscale-avatar-600nw-2281862025.jpg'
-
-                    trip_info = {
-                        'id': trip.id,
-                        'driverProfilePic': profile_photo_url,
-                        'driverName': f"{trip.service_provider.first_name} {trip.service_provider.last_name}",
-                        'serviceProviderType': job_posting.service_type,
-                        'serviceRate': trip.transaction.rate,
-                        'servicePeriodStart': service_period_start_str,
-                        'servicePeriodEnd': service_period_end_str,
-                        'tripId': trip.id,
-                        'transactionId': trip.transaction.id,
-                        'jobPostingId': job_posting.id,
-                    }
-
-                    # Log trip details for debugging
-                    logger.debug(f"Processing Trip: {trip_info}")
-
-                    if service_period_end >= current_time:
-                        days_to_go = (service_period_end - current_time).days
-                        trip_info['daysToGo'] = days_to_go
-                        upcoming_trips.append(trip_info)
-                        logger.debug(f"Upcoming Trip Added: {trip_info}")
-                    else:
-                        trip_info['servicePeriod'] = service_period_str
-                        past_trips.append(trip_info)
-                        logger.debug(f"Past Trip Added: {trip_info}")
-                else:
-                    logger.warning(f"JobPosting or service_period is missing for trip ID {trip.id}")
-
-            data = {
-                'upcoming': upcoming_trips,
-                'past': past_trips
-            }
-
-            logger.debug(f"Final Response Data: {data}")
-            return JsonResponse(data, status=200)
-
+            return JsonResponse({'trips': trips_data}, status=200)
         except jwt.ExpiredSignatureError:
-            logger.warning("Token has expired")
             return JsonResponse({'message': 'Token has expired'}, status=401)
         except jwt.InvalidTokenError:
-            logger.warning("Invalid token")
             return JsonResponse({'message': 'Invalid token'}, status=401)
         except User.DoesNotExist:
-            logger.error("User not found")
             return JsonResponse({'message': 'User not found'}, status=404)
         except Exception as e:
-            logger.error(f"An error occurred: {str(e)}")
             return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
     else:
-        logger.warning("Invalid request method")
         return JsonResponse({'message': 'Invalid request method'}, status=405)
 
 import logging
@@ -2590,12 +2764,26 @@ def driver_trips_view(request):
         return JsonResponse({'message': 'Invalid request method'}, status=405)
 
 
+
+
+
+
+
+
+
+
+
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import Hiring
 import jwt
 from django.conf import settings
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 @csrf_exempt
 def trip_details(request, hiring_id):
@@ -2604,35 +2792,106 @@ def trip_details(request, hiring_id):
         try:
             decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
             user_id = decoded_token['user_id']
-            user = get_object_or_404(User, id=user_id)
 
-            # Fetch the specific Hiring object
-            hiring = get_object_or_404(Hiring, id=hiring_id)
+            hiring = get_object_or_404(Hiring, id=hiring_id, customer_id=user_id)
+            transaction = hiring.transaction
+            job_posting = transaction.job_posting
 
-            # Check if the user is either the customer or the service provider involved in this hiring
-            if hiring.customer.id != user_id and hiring.service_provider.id != user_id:
-                return JsonResponse({'message': 'Unauthorized'}, status=403)
+            logger.debug(f"User {user_id} is viewing details for trip {hiring_id}")
 
-            trip_info = {
-                'driverName': f"{hiring.service_provider.first_name} {hiring.service_provider.last_name}",
-                'driverLicense': hiring.service_provider.driver.license_number,
-                'driverPhone': hiring.service_provider.phone,
-                'driverRating': hiring.service_provider.rating,
-                'destination': hiring.transaction.job_posting.onboarding_location,
-                'rate': hiring.transaction.rate,
-                'daysToGo': (hiring.transaction.job_posting.service_period_end - timezone.now().date()).days,
-                'serviceProviderType': hiring.transaction.job_posting.service_type,
-                'jobSummary': hiring.transaction.job_posting.job_summary,
+            response_data = {
+                'jobPosting': {
+                    'serviceType': job_posting.service_type,
+                    'servicePeriod': job_posting.service_period,
+                    'serviceRate': job_posting.service_rate,
+                    'onboardingLocation': job_posting.onboarding_location,
+                    'jobSummary': job_posting.job_summary,
+                },
+                'transaction': {
+                    'rate': transaction.rate,
+                    'datetime': transaction.datetime,
+                    'paymentMethod': transaction.payment_method,
+                }
             }
 
-            # Return trip details as a JSON response
-            return JsonResponse({'trip': trip_info}, status=200)
+            logger.debug(f"Response Data: {response_data}")
+            return JsonResponse(response_data, status=200)
 
         except jwt.ExpiredSignatureError:
+            logger.warning("Token has expired")
             return JsonResponse({'message': 'Token has expired'}, status=401)
         except jwt.InvalidTokenError:
+            logger.warning("Invalid token")
             return JsonResponse({'message': 'Invalid token'}, status=401)
+        except Hiring.DoesNotExist:
+            logger.error(f"Hiring with ID {hiring_id} not found for user {user_id}")
+            return JsonResponse({'message': 'Trip not found'}, status=404)
         except Exception as e:
+            logger.error(f"An error occurred: {str(e)}")
             return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
     else:
+        logger.warning("Invalid request method")
+        return JsonResponse({'message': 'Invalid request method'}, status=405)
+
+
+from django.shortcuts import get_object_or_404
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from .models import Hiring
+import jwt
+from django.conf import settings
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+def driver_trip_details_view(request, trip_id):
+    if request.method == 'GET':
+        token = request.headers.get('Authorization', '').split('Bearer ')[-1]
+        try:
+            # Decode the JWT token to get the user_id
+            decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+            user_id = decoded_token['user_id']
+
+            # Get the Hiring object for the given trip_id where the service provider is the current user
+            hiring = get_object_or_404(Hiring, id=trip_id, service_provider_id=user_id)
+            transaction = hiring.transaction
+            job_posting = transaction.job_posting
+
+            logger.debug(f"Driver {user_id} is viewing details for trip {trip_id}")
+
+            response_data = {
+                'jobPosting': {
+                    'serviceType': job_posting.service_type,
+                    'servicePeriod': job_posting.service_period,
+                    'serviceRate': str(job_posting.service_rate),
+                    'onboardingLocation': job_posting.onboarding_location,
+                    'jobSummary': job_posting.job_summary,
+                },
+                'transaction': {
+                    'rate': str(transaction.rate),
+                    'datetime': transaction.datetime,
+                    'paymentMethod': transaction.payment_method,
+                }
+            }
+
+            logger.debug(f"Response Data: {response_data}")
+            return JsonResponse(response_data, status=200)
+
+        except jwt.ExpiredSignatureError:
+            logger.warning("Token has expired")
+            return JsonResponse({'message': 'Token has expired'}, status=401)
+        except jwt.InvalidTokenError:
+            logger.warning("Invalid token")
+            return JsonResponse({'message': 'Invalid token'}, status=401)
+        except Hiring.DoesNotExist:
+            logger.error(f"Hiring with ID {trip_id} not found for driver {user_id}")
+            return JsonResponse({'message': 'Trip not found'}, status=404)
+        except Exception as e:
+            logger.error(f"An error occurred: {str(e)}")
+            return JsonResponse({'message': f'An error occurred: {str(e)}'}, status=500)
+    else:
+        logger.warning("Invalid request method")
         return JsonResponse({'message': 'Invalid request method'}, status=405)

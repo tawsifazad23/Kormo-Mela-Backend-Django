@@ -9,7 +9,7 @@ from .views import (
     RequestedJobPostingsView, get_driver_requests, request_details, delete_job_posting, 
     accept_request, reject_request, get_conversations_customer, delete_chat, 
     send_message_customer, get_messages_customer, send_message_service_provider, trip_details,
-    get_messages_service_provider, trip_info, live_data_stream, user_trips_view, driver_trips_view,
+    get_messages_service_provider, trip_info, live_data_stream, user_trips_view, driver_trips_view,driver_trip_details_view,
     get_conversations_service_provider, trip_info_serviceprovider, job_postings_sse, book_trip, mark_messages_as_seen, upload_profile_photo_serviceprovider, profile_view_customer
 )
 from django.conf import settings
@@ -55,6 +55,11 @@ urlpatterns = [
     path('customer_trips/', user_trips_view, name='user_trips'),
     path('driver_trips/', driver_trips_view, name='driver_trips'),
     path('trip-details/<int:hiring_id>/', trip_details, name='trip_details'),
+    path('driver_trip-details/<int:trip_id>/', driver_trip_details_view, name='driver_trip_details')
+
+
+
+
 ]
 
 

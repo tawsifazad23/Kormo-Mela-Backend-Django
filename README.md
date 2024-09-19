@@ -186,5 +186,4 @@ If you are deploying to production, make sure to disable `DEBUG`, set up a prope
 Kormo Mela is built to empower service providers and customers through secure and efficient connections. The backend handles all essential operations, from user authentication to job management, ensuring a reliable experience for all users. 
 
 We look forward to scaling the platform and enhancing its functionalities to create a greater impact!
-```
 
